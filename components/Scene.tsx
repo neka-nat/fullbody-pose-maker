@@ -139,7 +139,7 @@ export function Scene() {
   // IK 実行
   useFrame(() => {
     if (constraints.length) {
-      solveIK(constraints, 6, 0.2)
+      solveIK(constraints, 6, 0.2, { rootStep: 0.15, rootClamp: 0.06 })
     }
   })
 
