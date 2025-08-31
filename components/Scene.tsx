@@ -139,7 +139,29 @@ export function Scene() {
   // IK 実行
   useFrame(() => {
     if (constraints.length) {
-      solveIK(constraints, 6, 0.2, { rootStep: 0.15, rootClamp: 0.06 })
+      // 支持点（足）：拘束が有効なら target、無効なら現在位置
+      const supportPts: THREE.Vector3[] = []
+      const addFoot = (key: ControlKey) => {
+        if (key !== 'LeftFoot' && key !== 'RightFoot') return
+        const cp = controlsState[key]
+        if (!cp?.boneName) return
+        if (cp.enabled) {
+          supportPts.push(cp.target.clone())
+        } else if (modelRef.current) {
+          const eff = findObjectByName(modelRef.current, cp.boneName)
+          if (eff) supportPts.push(getWorldPosition(eff))
+        }
+      }
+      addFoot('LeftFoot')
+      addFoot('RightFoot')
+
+      // 回転は 6iter/0.2、root 並進は控えめ、CoMバイアスを適度に
+      solveIK(constraints, 6, 0.2, {
+        rootStep: 0.15,
+        rootClamp: 0.06,
+        comSupport: supportPts,
+        comGain: 0.03,   // ← CoM バイアスの強さ（0で無効）
+      })
     }
   })
 
