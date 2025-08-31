@@ -4,10 +4,10 @@ import * as THREE from 'three'
 import { useUIStore, ControlKey } from '@/lib/store'
 
 const CONTROL_LABELS: Record<ControlKey, string> = {
-  LeftHand: '左手',
-  RightHand: '右手',
-  LeftFoot: '左足',
-  RightFoot: '右足'
+  LeftHand: 'Left Hand',
+  RightHand: 'Right Hand',
+  LeftFoot: 'Left Foot',
+  RightFoot: 'Right Foot'
 }
 
 export function DebugSidebar() {
@@ -42,9 +42,9 @@ export function DebugSidebar() {
   return (
     <div className="sidebar">
       <div className="section">
-        <strong>モデル</strong>
+        <strong>Model</strong>
         <div className="row">
-          <label>選択</label>
+          <label>Select</label>
           <select value={modelName} onChange={(e) => setModelName(e.target.value as 'XBot' | 'YBot')}>
             <option value="XBot">XBot</option>
             <option value="YBot">YBot</option>
@@ -53,21 +53,21 @@ export function DebugSidebar() {
       </div>
 
       <div className="section">
-        <strong>コントロールポイント</strong>
+        <strong>Control Points</strong>
         {Object.entries(CONTROL_LABELS).map(([key, label]) => (
           <div className="row" key={key}>
             <label style={{ width: 48 }}>{label}</label>
-            <input style={{ flex: 1 }} readOnly value={controls[key as ControlKey].boneName || '未設定'} />
+            <input style={{ flex: 1 }} readOnly value={controls[key as ControlKey].boneName || 'Not Set'} />
             <label className="row" style={{ gap: 4 }}>
-              <input type="checkbox" checked={controls[key as ControlKey].enabled} onChange={() => toggleControl(key as ControlKey)} />拘束
+              <input type="checkbox" checked={controls[key as ControlKey].enabled} onChange={() => toggleControl(key as ControlKey)} />Constraint
             </label>
           </div>
         ))}
       </div>
 
       <div className="section">
-        <strong>ボーン一覧</strong>
-        <div className="row"><input placeholder="フィルタ" value={filter} onChange={e => setFilter(e.target.value)} style={{ width: '100%' }} /></div>
+        <strong>Bone List</strong>
+        <div className="row"><input placeholder="Filter" value={filter} onChange={e => setFilter(e.target.value)} style={{ width: '100%' }} /></div>
         <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #eee', borderRadius: 6, padding: 6 }}>
           {filtered.map(name => (
             <div key={name} className="bone-item" onClick={() => setSelectedBone(name)}>
@@ -78,8 +78,8 @@ export function DebugSidebar() {
       </div>
 
       <div className="section" style={{ fontSize: 12, color: '#666' }}>
-        <div>・ギズモで手足ターゲットをドラッグ</div>
-        <div>・拘束0件のときは全身移動</div>
+        <div>Drag Gizmos to move effectors</div>
+        <div>When there are no constraints, the whole body moves</div>
       </div>
     </div>
   )

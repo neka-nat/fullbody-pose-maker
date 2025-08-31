@@ -18,9 +18,9 @@ export default function Page() {
       <DebugSidebar />
       <div style={{ position: 'relative' }}>
         <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 8, zIndex: 10 }}>
-          <button onClick={toggleGizmos}>{showGizmos ? 'ギズモ非表示' : 'ギズモ表示'}</button>
-          <button onClick={() => saveImage(canvasRef.current || undefined)}>画像保存</button>
-          <button onClick={() => copyImage(canvasRef.current || undefined)}>クリップボードにコピー</button>
+          <button onClick={toggleGizmos}>{showGizmos ? 'Gizmos Off' : 'Gizmos On'}</button>
+          <button onClick={() => saveImage(canvasRef.current || undefined)}>Save Image</button>
+          <button onClick={() => copyImage(canvasRef.current || undefined)}>Copy to Clipboard</button>
         </div>
         <Canvas
           gl={{ preserveDrawingBuffer: true, antialias: true, alpha: false, powerPreference: 'high-performance' }}
