@@ -15,18 +15,30 @@ html, body {
   background: #fff;
 }
 
-.section { display: flex; flex-direction: column; gap: 8px; }
-.row { display: flex; align-items: center; gap: 8px; }
-
-.bone-item {
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+.control-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
 }
-.bone-item:hover { background: #f5f7fa; }
 
-.sidebar .section > strong {
-  font-weight: 600;
-  margin-bottom: 2px;
+.control-label,
+.control-select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.icon-btn {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  line-height: 1;
 }

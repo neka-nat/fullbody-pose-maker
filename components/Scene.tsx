@@ -71,7 +71,7 @@ export function Scene() {
         skeletonRoot.current = topBone || scene
         setModelRoot(scene)
         setSkeletonRoot(skeletonRoot.current)
-        setBones(listBones(scene))
+        setBones(listBones(skeletonRoot.current!))
 
         // ボーン名の推定
         let names: string[] = []
@@ -125,7 +125,7 @@ export function Scene() {
     const out: IKConstraint[] = []
     for (const cp of controls) {
       if (!cp.enabled || !cp.boneName) continue
-      const eff = findObjectByName(sceneRoot, cp.boneName)
+      const eff = findObjectByName(root, cp.boneName)
       if (!eff) continue
       out.push({ effector: eff, target: cp.target, root })
     }
@@ -135,19 +135,22 @@ export function Scene() {
   // IK 実行＋CoMバイアス（足系コントロールから支持点を作る）
   useFrame(() => {
     if (constraints.length) {
+      // ★ 検索ルートは skeletonRoot 優先
+      const base = skeletonFromStore || skeletonRoot.current || modelRef.current
       const supportPts: THREE.Vector3[] = []
-      const scene = modelRef.current
-      // boneName に foot / toe を含むものを足とみなす
-      controls.forEach(cp => {
-        if (!cp.boneName) return
-        if (!/foot|toe/i.test(cp.boneName)) return
-        if (cp.enabled) {
-          supportPts.push(cp.target.clone())
-        } else if (scene) {
-          const eff = findObjectByName(scene, cp.boneName)
-          if (eff) supportPts.push(getWorldPosition(eff))
-        }
-      })
+      if (base) {
+        // boneName に foot / toe を含むものを足とみなす
+        controls.forEach(cp => {
+          if (!cp.boneName) return
+          if (!/foot|toe/i.test(cp.boneName)) return
+          if (cp.enabled) {
+            supportPts.push(cp.target.clone())
+          } else {
+            const eff = findObjectByName(base, cp.boneName)
+            if (eff) supportPts.push(getWorldPosition(eff))
+          }
+        })
+      }
       solveIK(constraints, 6, 0.2, {
         rootStep: 0.15,
         rootClamp: 0.06,
@@ -187,6 +190,8 @@ function ControlGizmo({
   const cp = useUIStore(s => s.controls.find(c => c.id === controlId))
   const setControlTarget = useUIStore(s => s.setControlTarget)
   const controlsEnabledCount = useUIStore(s => s.controls.filter(c => c.enabled).length)
+  const skeleton = useUIStore(s => s.skeletonRoot)
+  const searchRoot = skeleton || modelRef.current
   const showGizmos = useUIStore(s => s.showGizmos)
 
   const anchorRef = useRef<THREE.Group>(null)
@@ -217,9 +222,8 @@ function ControlGizmo({
   // 初期配置＆ターゲット変更時にアンカー位置を反映（ドラッグ中は無視）
   useEffect(() => {
     if (!cp || dragging.current) return
-    const root = modelRef.current
-    if (!root || !cp.boneName) return
-    const eff = findObjectByName(root, cp.boneName)
+    if (!searchRoot || !cp.boneName) return
+    const eff = findObjectByName(searchRoot, cp.boneName)
     if (!eff) return
     const pos = cp.enabled ? cp.target : getWorldPosition(eff)
     if (anchorRef.current) {
@@ -233,7 +237,7 @@ function ControlGizmo({
   useFrame(() => {
     if (!cp || !anchorRef.current || !modelRef.current || !cp.boneName || dragging.current) return
     if (!cp.enabled) {
-      const eff = findObjectByName(modelRef.current, cp.boneName)
+      const eff = searchRoot ? findObjectByName(searchRoot, cp.boneName) : null
       if (eff) {
         const p = getWorldPosition(eff)
         anchorRef.current.position.copy(p)

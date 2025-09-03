@@ -14,7 +14,7 @@ export default function Page() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', height: '100dvh' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', height: '100dvh' }}>
       <DebugSidebar />
       <div style={{ position: 'relative' }}>
         <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 8, zIndex: 10 }}>

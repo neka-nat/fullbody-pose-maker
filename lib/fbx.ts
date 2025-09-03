@@ -1,13 +1,13 @@
 import * as THREE from 'three'
 
 export function listBones(root: THREE.Object3D): string[] {
-  const names: string[] = []
+  const names = new Set<string>()
   root.traverse(obj => {
     if ((obj as any).isBone) {
-      names.push(obj.name || '(unnamed)')
+      names.add(obj.name || '(unnamed)')
     }
   })
-  return names
+  return Array.from(names)
 }
 
 export function findObjectByName(root: THREE.Object3D, name: string | null): THREE.Object3D | null {

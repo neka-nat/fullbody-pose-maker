@@ -62,15 +62,15 @@ export function DebugSidebar() {
       <div className="section">
         <strong>Control Points</strong>
         {controls.map(cp => (
-          <div className="row" key={cp.id} style={{ gap: 6, alignItems: 'center' }}>
+          <div className="control-row" key={cp.id}>
             <input
-              style={{ width: 110 }}
+              className="control-label"
               value={cp.label}
               onChange={(e) => setControlLabel(cp.id, e.target.value)}
               title="Label"
             />
             <select
-              style={{ flex: 1 }}
+              className="control-select"
               value={cp.boneName ?? ''}
               onChange={(e) => {
                 const name = e.target.value || null
@@ -85,11 +85,13 @@ export function DebugSidebar() {
               <option value="">(Not Set)</option>
               {bones.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
-            <label className="row" style={{ gap: 4 }}>
+
+            <label className="checkbox">
               <input type="checkbox" checked={cp.enabled} onChange={() => toggleControl(cp.id)} />
-              Constraint
+              <span>Constraint</span>
             </label>
-            <button onClick={() => removeControl(cp.id)} title="Remove">×</button>
+
+            <button className="icon-btn" onClick={() => removeControl(cp.id)} title="Remove">×</button>
           </div>
         ))}
       </div>
