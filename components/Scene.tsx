@@ -4,11 +4,9 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { TransformControls, Grid, GizmoHelper, GizmoViewport } from '@react-three/drei'
 import * as THREE from 'three'
 import { FBXLoader } from 'three-stdlib'
-import { useUIStore, ControlKey } from '@/lib/store'
+import { useUIStore } from '@/lib/store'
 import { findObjectByName, getWorldPosition, listBones, findSkeletonTopBone } from '@/lib/fbx'
 import { solveIK, IKConstraint } from '@/lib/ik'
-
-const DEFAULT_KEYS: ControlKey[] = ['LeftHand','RightHand','LeftFoot','RightFoot']
 
 export function Scene() {
   const groupRef = useRef<THREE.Group>(null)
@@ -17,7 +15,7 @@ export function Scene() {
   const { gl } = useThree()
 
   const showGizmos = useUIStore(s => s.showGizmos)
-  const controlsState = useUIStore(s => s.controls)
+  const controls = useUIStore(s => s.controls)
   const setModelRoot = useUIStore(s => s.setModelRoot)
   const setSkeletonRoot = useUIStore(s => s.setSkeletonRoot)
   const setBones = useUIStore(s => s.setBones)
@@ -25,11 +23,9 @@ export function Scene() {
   const mapControlBone = useUIStore(s => s.mapControlBone)
   const modelName = useUIStore(s => s.modelName)
 
-  // 依存に入れて constraints がモデル切替でも更新されるように
   const modelRoot = useUIStore(s => s.modelRoot)
   const skeletonFromStore = useUIStore(s => s.skeletonRoot)
 
-  // 背景色
   useEffect(() => {
     gl.setClearColor(0xffffff, 1)
   }, [gl])
@@ -77,7 +73,7 @@ export function Scene() {
         setSkeletonRoot(skeletonRoot.current)
         setBones(listBones(scene))
 
-        // ボーン名の推定（従来ロジックを維持）
+        // ボーン名の推定
         let names: string[] = []
         for (const path of ['/models/bonelist.txt', '/bonelist.txt']) {
           try {
@@ -101,15 +97,16 @@ export function Scene() {
         const leftFoot = pick(['mixamorig:leftFoot','leftfoot','left_foot','left foot','ankle.l','leftankle','foot_l','foot.l','lefttoe','left_toe','left toe'].map(s=>s.toLowerCase()), ['mixamorig:LeftFoot','LeftFoot','mixamorig:LeftToeBase','LeftToeBase'])
         const rightFoot = pick(['mixamorig:rightFoot','rightfoot','right_foot','right foot','ankle.r','rightankle','foot_r','foot.r','righttoe','right_toe','right toe'].map(s=>s.toLowerCase()), ['mixamorig:RightFoot','RightFoot','mixamorig:RightToeBase','RightToeBase'])
 
+        // 既定の4点にボーンを割当（IDは LeftHand/RightHand/LeftFoot/RightFoot）
         if (leftHand)  mapControlBone('LeftHand', leftHand)
         if (rightHand) mapControlBone('RightHand', rightHand)
         if (leftFoot)  mapControlBone('LeftFoot', leftFoot)
         if (rightFoot) mapControlBone('RightFoot', rightFoot)
 
         // 現在のエフェクタ位置を初期ターゲットに
-        for (const [key, name] of [['LeftHand', leftHand], ['RightHand', rightHand], ['LeftFoot', leftFoot], ['RightFoot', rightFoot]] as const) {
+        for (const [id, name] of [['LeftHand', leftHand], ['RightHand', rightHand], ['LeftFoot', leftFoot], ['RightFoot', rightFoot]] as const) {
           const eff = name ? findObjectByName(scene, name) : null
-          if (eff) setControlTarget(key as ControlKey, getWorldPosition(eff))
+          if (eff) setControlTarget(id, getWorldPosition(eff))
         }
       },
       () => {},
@@ -120,47 +117,42 @@ export function Scene() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelName])
 
-  // IK 制約
+  // IK 制約（全コントロール対象）
   const constraints = useMemo(() => {
     const sceneRoot = modelRoot
     const root = (skeletonFromStore || skeletonRoot.current || sceneRoot)
     if (!sceneRoot || !root) return [] as IKConstraint[]
     const out: IKConstraint[] = []
-    for (const key of DEFAULT_KEYS) {
-      const cp = controlsState[key]
+    for (const cp of controls) {
       if (!cp.enabled || !cp.boneName) continue
       const eff = findObjectByName(sceneRoot, cp.boneName)
       if (!eff) continue
       out.push({ effector: eff, target: cp.target, root })
     }
     return out
-  }, [controlsState, modelRoot, skeletonFromStore])
+  }, [controls, modelRoot, skeletonFromStore])
 
-  // IK 実行
+  // IK 実行＋CoMバイアス（足系コントロールから支持点を作る）
   useFrame(() => {
     if (constraints.length) {
-      // 支持点（足）：拘束が有効なら target、無効なら現在位置
       const supportPts: THREE.Vector3[] = []
-      const addFoot = (key: ControlKey) => {
-        if (key !== 'LeftFoot' && key !== 'RightFoot') return
-        const cp = controlsState[key]
-        if (!cp?.boneName) return
+      const scene = modelRef.current
+      // boneName に foot / toe を含むものを足とみなす
+      controls.forEach(cp => {
+        if (!cp.boneName) return
+        if (!/foot|toe/i.test(cp.boneName)) return
         if (cp.enabled) {
           supportPts.push(cp.target.clone())
-        } else if (modelRef.current) {
-          const eff = findObjectByName(modelRef.current, cp.boneName)
+        } else if (scene) {
+          const eff = findObjectByName(scene, cp.boneName)
           if (eff) supportPts.push(getWorldPosition(eff))
         }
-      }
-      addFoot('LeftFoot')
-      addFoot('RightFoot')
-
-      // 回転は 6iter/0.2、root 並進は控えめ、CoMバイアスを適度に
+      })
       solveIK(constraints, 6, 0.2, {
         rootStep: 0.15,
         rootClamp: 0.06,
         comSupport: supportPts,
-        comGain: 0.03,   // ← CoM バイアスの強さ（0で無効）
+        comGain: 0.03,
       })
     }
   })
@@ -173,9 +165,9 @@ export function Scene() {
 
       <group ref={modelRef} name="ModelRoot" />
 
-      {/* Gizmo endpoints */}
-      {showGizmos && DEFAULT_KEYS.map(key => (
-        <ControlGizmo key={key} controlKey={key} modelRef={modelRef} skeletonRoot={skeletonRoot} />
+      {/* Gizmos */}
+      {showGizmos && controls.map(cp => (
+        <ControlGizmo key={cp.id} controlId={cp.id} modelRef={modelRef} />
       ))}
 
       <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
@@ -186,47 +178,45 @@ export function Scene() {
 }
 
 function ControlGizmo({
-  controlKey,
+  controlId,
   modelRef,
-  skeletonRoot
 }: {
-  controlKey: ControlKey
+  controlId: string
   modelRef: React.MutableRefObject<THREE.Group | null>
-  skeletonRoot: React.MutableRefObject<THREE.Object3D | null>
 }) {
-  const cp = useUIStore(s => s.controls[controlKey])
+  const cp = useUIStore(s => s.controls.find(c => c.id === controlId))
   const setControlTarget = useUIStore(s => s.setControlTarget)
-  const controlsEnabledCount = useUIStore(
-    s => Object.values(s.controls).filter(c => c.enabled).length
-  )
+  const controlsEnabledCount = useUIStore(s => s.controls.filter(c => c.enabled).length)
+  const showGizmos = useUIStore(s => s.showGizmos)
 
-  // ① TransformControls が attach する“アンカー”
   const anchorRef = useRef<THREE.Group>(null)
-  const tcRef = useRef<any>(null) // dreiのTransformControls（three-stdlib）の実体
-
+  const tcRef = useRef<any>(null)
   const local = useRef({ lastPos: new THREE.Vector3() })
   const orbit = useThree(state => state.controls) as any
   const dragging = useRef(false)
 
-  // ② 初回およびボーン割当て後に明示 attach
+  // 初回 attach
   useEffect(() => {
     if (tcRef.current && anchorRef.current) {
       tcRef.current.attach(anchorRef.current)
     }
-    return () => {
-      if (tcRef.current) tcRef.current.detach()
-    }
+    return () => { if (tcRef.current) tcRef.current.detach() }
   }, [])
 
+  // ★ 重要：boneName 変化や有効化条件の変化で強制 re-attach
   useEffect(() => {
-    if (tcRef.current && anchorRef.current) {
-      tcRef.current.attach(anchorRef.current)
-    }
-  }, [cp.boneName])
+    if (!tcRef.current || !anchorRef.current) return
+    tcRef.current.detach()
+    tcRef.current.attach(anchorRef.current)
+    // visible/enabled を同期
+    const canShow = showGizmos && (!!cp?.boneName || controlsEnabledCount === 0)
+    tcRef.current.visible = canShow
+    tcRef.current.enabled = canShow
+  }, [cp?.boneName, controlsEnabledCount, showGizmos])
 
-  // ③ 初期配置＆ターゲット変更時にアンカーを移動（ドラッグ中は無視）
+  // 初期配置＆ターゲット変更時にアンカー位置を反映（ドラッグ中は無視）
   useEffect(() => {
-    if (dragging.current) return
+    if (!cp || dragging.current) return
     const root = modelRef.current
     if (!root || !cp.boneName) return
     const eff = findObjectByName(root, cp.boneName)
@@ -237,11 +227,11 @@ function ControlGizmo({
       local.current.lastPos.copy(pos)
     }
     if (tcRef.current) tcRef.current.updateMatrixWorld(true)
-  }, [cp.boneName, cp.enabled, cp.target, modelRef])
+  }, [cp?.boneName, cp?.enabled, cp?.target, modelRef])
 
-  // ④ 拘束OFFのときは毎フレームエフェクタ位置に追従
+  // 拘束OFFのときは毎フレームエフェクタ位置に追従
   useFrame(() => {
-    if (!anchorRef.current || !modelRef.current || !cp.boneName || dragging.current) return
+    if (!cp || !anchorRef.current || !modelRef.current || !cp.boneName || dragging.current) return
     if (!cp.enabled) {
       const eff = findObjectByName(modelRef.current, cp.boneName)
       if (eff) {
@@ -253,32 +243,37 @@ function ControlGizmo({
     }
   })
 
-  // ⑤ ドラッグ中にターゲット更新（ワールド座標で）
   const onTransformChange = () => {
-    if (!dragging.current || !anchorRef.current) return
+    if (!cp || !dragging.current || !anchorRef.current) return
     const w = new THREE.Vector3()
     anchorRef.current.getWorldPosition(w)
     const delta = w.clone().sub(local.current.lastPos)
     local.current.lastPos.copy(w)
-    setControlTarget(controlKey, w)
+    setControlTarget(controlId, w)
     if (controlsEnabledCount === 0 && modelRef.current) {
       modelRef.current.position.add(delta)
     }
   }
 
+  if (!cp) return null
+
+  const canShow = showGizmos && (!!cp.boneName || controlsEnabledCount === 0)
+
   return (
     <>
       <TransformControls
+        // ★ boneName の変化で確実に再マウントして内部状態を刷新
+        key={cp.id + ':' + (cp.boneName ?? 'none')}
         ref={tcRef}
         mode="translate"
         space="world"
-        enabled={!!cp.boneName || controlsEnabledCount === 0}
+        visible={canShow}
+        enabled={canShow}
         onChange={onTransformChange}
         onMouseDown={() => { dragging.current = true; if (orbit) orbit.enabled = false }}
         onMouseUp={() => { dragging.current = false; if (orbit) orbit.enabled = true }}
         showX showY showZ
       />
-      {/* ハンドルの見た目（アンカーの子） */}
       <group ref={anchorRef}>
         <mesh>
           <sphereGeometry args={[0.06, 16, 16]} />
