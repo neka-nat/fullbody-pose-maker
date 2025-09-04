@@ -148,7 +148,6 @@ export const useUIStore = create<State & Actions>((set, get) => {
         blob = await res.blob()
       }
       try {
-        // @ts-expect-error ClipboardItem は環境により型未定義の場合あり
         await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
         return
       } catch (e) {
