@@ -2,6 +2,8 @@
 
 Demo: https://fullbody-pose-maker.vercel.app/
 
+https://github.com/user-attachments/assets/007d878e-daac-416c-92ca-e05f04870a69
+
 Next.js + TypeScript app scaffold for an IK pose editor targeting Mixamo FBX rigs (X Bot / Y Bot). This base includes:
 
 - Jacobian-transpose based full-body IK (numeric Jacobian)
