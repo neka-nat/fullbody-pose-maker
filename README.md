@@ -1,4 +1,6 @@
-# Fullbody Pose Maker (base)
+# Fullbody Pose Maker
+
+Demo: https://fullbody-pose-maker.vercel.app/
 
 Next.js + TypeScript app scaffold for an IK pose editor targeting Mixamo FBX rigs (X Bot / Y Bot). This base includes:
 
