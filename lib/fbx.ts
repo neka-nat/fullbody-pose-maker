@@ -25,6 +25,12 @@ export function getWorldPosition(obj: THREE.Object3D): THREE.Vector3 {
   return obj.getWorldPosition(v)
 }
 
+export function getWorldQuaternion(obj: THREE.Object3D): THREE.Quaternion {
+  const q = new THREE.Quaternion()
+  obj.updateWorldMatrix(true, false)
+  return obj.getWorldQuaternion(q)
+}
+
 export function findSkeletonTopBone(root: THREE.Object3D): THREE.Object3D | null {
   const bones: THREE.Object3D[] = []
   root.traverse(o => { if ((o as any).isBone) bones.push(o) })

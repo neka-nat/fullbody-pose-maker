@@ -7,8 +7,14 @@ export type ControlPoint = {
   id: ControlID
   label: string
   boneName: string | null
-  enabled: boolean
+  /** 位置拘束ON/OFF（デフォルトON） */
+  posEnabled: boolean
+  /** 回転拘束ON/OFF（デフォルトOFF） */
+  rotEnabled: boolean
+  /** 位置ターゲット（World） */
   target: THREE.Vector3
+  /** 回転ターゲット（World） */
+  targetRot: THREE.Quaternion
 }
 
 type State = {
@@ -30,9 +36,11 @@ type Actions = {
 
   addControlFromBone: (boneName: string, label?: string, initialTarget?: THREE.Vector3) => string
   removeControl: (id: ControlID) => void
-  toggleControl: (id: ControlID) => void
+  toggleControlPos: (id: ControlID) => void
+  toggleControlRot: (id: ControlID) => void
   mapControlBone: (id: ControlID, boneName: string | null) => void
   setControlTarget: (id: ControlID, pos: THREE.Vector3) => void
+  setControlTargetRot: (id: ControlID, rot: THREE.Quaternion) => void
   setControlLabel: (id: ControlID, label: string) => void
 
   toggleGizmos: () => void
@@ -41,10 +49,10 @@ type Actions = {
 }
 
 const v3 = (x=0,y=0,z=0)=> new THREE.Vector3(x,y,z)
+const qIdent = ()=> new THREE.Quaternion()
 const pretty = (s: string) => s.replace(/^mixamorig:/i, '')
 
 export const useUIStore = create<State & Actions>((set, get) => {
-  // 一意なIDを作る
   const uniqueId = (base: string) => {
     const exist = (id: string) => get().controls.some(c => c.id === id)
     let id = base
@@ -60,12 +68,12 @@ export const useUIStore = create<State & Actions>((set, get) => {
     selectedBone: null,
     modelName: 'XBot',
 
-    // デフォルト4点（骨は後でSceneが自動割当する）
+    // 既定4点：位置ON / 角度OFF
     controls: [
-      { id: 'LeftHand',  label: 'Left Hand',  boneName: null, enabled: true, target: v3() },
-      { id: 'RightHand', label: 'Right Hand', boneName: null, enabled: true, target: v3() },
-      { id: 'LeftFoot',  label: 'Left Foot',  boneName: null, enabled: true, target: v3() },
-      { id: 'RightFoot', label: 'Right Foot', boneName: null, enabled: true, target: v3() },
+      { id: 'LeftHand',  label: 'Left Hand',  boneName: null, posEnabled: true, rotEnabled: false, target: v3(), targetRot: qIdent() },
+      { id: 'RightHand', label: 'Right Hand', boneName: null, posEnabled: true, rotEnabled: false, target: v3(), targetRot: qIdent() },
+      { id: 'LeftFoot',  label: 'Left Foot',  boneName: null, posEnabled: true, rotEnabled: false, target: v3(), targetRot: qIdent() },
+      { id: 'RightFoot', label: 'Right Foot', boneName: null, posEnabled: true, rotEnabled: false, target: v3(), targetRot: qIdent() },
     ],
     showGizmos: true,
 
@@ -82,8 +90,10 @@ export const useUIStore = create<State & Actions>((set, get) => {
         id,
         label: idBase,
         boneName,
-        enabled: true,
+        posEnabled: true,
+        rotEnabled: false,
         target: initialTarget ? initialTarget.clone() : v3(),
+        targetRot: qIdent(),
       }
       set(state => ({ controls: [...state.controls, cp] }))
       return id
@@ -92,8 +102,11 @@ export const useUIStore = create<State & Actions>((set, get) => {
     removeControl: (id) =>
       set(state => ({ controls: state.controls.filter(c => c.id !== id) })),
 
-    toggleControl: (id) =>
-      set(state => ({ controls: state.controls.map(c => c.id === id ? { ...c, enabled: !c.enabled } : c) })),
+    toggleControlPos: (id) =>
+      set(state => ({ controls: state.controls.map(c => c.id === id ? { ...c, posEnabled: !c.posEnabled } : c) })),
+
+    toggleControlRot: (id) =>
+      set(state => ({ controls: state.controls.map(c => c.id === id ? { ...c, rotEnabled: !c.rotEnabled } : c) })),
 
     mapControlBone: (id, boneName) =>
       set(state => ({ controls: state.controls.map(c => c.id === id ? { ...c, boneName } : c) })),
@@ -108,12 +121,20 @@ export const useUIStore = create<State & Actions>((set, get) => {
       }))
     },
 
+    setControlTargetRot: (id, rot) => {
+      set(state => ({
+        controls: state.controls.map(c =>
+          c.id !== id ? c : { ...c, targetRot: rot.clone().normalize() }
+        )
+      }))
+    },
+
     setControlLabel: (id, label) =>
       set(state => ({ controls: state.controls.map(c => c.id === id ? { ...c, label } : c) })),
 
     toggleGizmos: () => set(state => ({ showGizmos: !state.showGizmos })),
 
-    // --- 画像保存/コピーはそのまま（堅牢版） ---
+    // --- 画像保存/コピー（既存のまま） ---
     saveImage: async (canvas) => {
       const el = canvas || (document.querySelector('canvas') as HTMLCanvasElement | null)
       if (!el) return

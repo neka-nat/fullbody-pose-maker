@@ -2,19 +2,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { useUIStore } from '@/lib/store'
-import { findObjectByName, getWorldPosition } from '@/lib/fbx'
+import { findObjectByName, getWorldPosition, getWorldQuaternion } from '@/lib/fbx'
 
 export function DebugSidebar() {
   const bones = useUIStore(s => s.bones)
   const modelRoot = useUIStore(s => s.modelRoot)
+  const skeletonRoot = useUIStore(s => s.skeletonRoot)
+
   const setSelectedBone = useUIStore(s => s.setSelectedBone)
   const controls = useUIStore(s => s.controls)
-  const toggleControl = useUIStore(s => s.toggleControl)
-  const mapControlBone = useUIStore(s => s.mapControlBone)
-  const setControlLabel = useUIStore(s => s.setControlLabel)
+
+  const toggleControlPos = useUIStore(s => s.toggleControlPos)
+  const toggleControlRot = useUIStore(s => s.toggleControlRot)
+  const mapControlBone   = useUIStore(s => s.mapControlBone)
+  const setControlLabel  = useUIStore(s => s.setControlLabel)
   const addControlFromBone = useUIStore(s => s.addControlFromBone)
-  const removeControl = useUIStore(s => s.removeControl)
+  const removeControl    = useUIStore(s => s.removeControl)
   const setControlTarget = useUIStore(s => s.setControlTarget)
+  const setControlTargetRot = useUIStore(s => s.setControlTargetRot)
 
   const modelName = useUIStore(s => s.modelName)
   const setModelName = useUIStore(s => s.setModelName)
@@ -22,7 +27,7 @@ export function DebugSidebar() {
   const [filter, setFilter] = useState('')
   const filtered = useMemo(() => bones.filter(b => b.toLowerCase().includes(filter.toLowerCase())), [bones, filter])
 
-  // Helpers: 目立たせ用
+  // Helpers: 目立たせ用（省略可能）
   useEffect(() => {
     if (!modelRoot) return
     const helpers: THREE.AxesHelper[] = []
@@ -40,10 +45,12 @@ export function DebugSidebar() {
   }, [modelRoot])
 
   const handleAdd = (boneName: string) => {
-    if (!modelRoot) return
-    const eff = findObjectByName(modelRoot, boneName)
+    const searchRoot = skeletonRoot || modelRoot
+    if (!searchRoot) return
+    const eff = findObjectByName(searchRoot, boneName)
     const p = eff ? getWorldPosition(eff) : new THREE.Vector3()
-    addControlFromBone(boneName, boneName.replace(/^mixamorig:/i, ''), p)
+    const id = addControlFromBone(boneName, boneName.replace(/^mixamorig:/i, ''), p)
+    if (eff) setControlTargetRot(id, getWorldQuaternion(eff))
   }
 
   return (
@@ -75,9 +82,13 @@ export function DebugSidebar() {
               onChange={(e) => {
                 const name = e.target.value || null
                 mapControlBone(cp.id, name)
-                if (name && modelRoot) {
-                  const eff = findObjectByName(modelRoot, name)
-                  if (eff) setControlTarget(cp.id, getWorldPosition(eff))
+                const searchRoot2 = skeletonRoot || modelRoot
+                if (name && searchRoot2) {
+                  const eff = findObjectByName(searchRoot2, name)
+                  if (eff) {
+                    setControlTarget(cp.id, getWorldPosition(eff))
+                    setControlTargetRot(cp.id, getWorldQuaternion(eff))
+                  }
                 }
               }}
               title="Bone"
@@ -86,9 +97,33 @@ export function DebugSidebar() {
               {bones.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
 
-            <label className="checkbox">
-              <input type="checkbox" checked={cp.enabled} onChange={() => toggleControl(cp.id)} />
-              <span>Constraint</span>
+            {/* 位置拘束 */}
+            <label className="checkbox" title="Position constraint">
+              <input
+                type="checkbox"
+                checked={cp.posEnabled}
+                onChange={() => toggleControlPos(cp.id)}
+              />
+              <span>Pos</span>
+            </label>
+
+            {/* 角度拘束（ON にした瞬間の現在姿勢をターゲットに反映） */}
+            <label className="checkbox" title="Rotation constraint">
+              <input
+                type="checkbox"
+                checked={cp.rotEnabled}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    const searchRoot3 = skeletonRoot || modelRoot
+                    if (cp.boneName && searchRoot3) {
+                      const eff = findObjectByName(searchRoot3, cp.boneName)
+                      if (eff) setControlTargetRot(cp.id, getWorldQuaternion(eff))
+                    }
+                  }
+                  toggleControlRot(cp.id)
+                }}
+              />
+              <span>Rot</span>
             </label>
 
             <button className="icon-btn" onClick={() => removeControl(cp.id)} title="Remove">×</button>
@@ -112,9 +147,9 @@ export function DebugSidebar() {
       </div>
 
       <div className="section" style={{ fontSize: 12, color: '#666' }}>
-        <div>・Click ＋ to add a control for that bone</div>
-        <div>・Drag Gizmos to move effectors</div>
-        <div>・When no constraints, the whole body moves</div>
+        <div>・Pos = 位置拘束、Rot = 回転拘束</div>
+        <div>・RotをONにすると、その瞬間の姿勢が目標になります</div>
+        <div>・No Pos constraints → Gizmo移動で全身が並進</div>
       </div>
     </div>
   )

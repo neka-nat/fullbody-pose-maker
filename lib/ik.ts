@@ -1,11 +1,18 @@
 import * as THREE from 'three'
-import { getWorldPosition, getBoneChainToRoot } from './fbx'
+import { getWorldPosition, getWorldQuaternion, getBoneChainToRoot } from './fbx'
 
 export type IKConstraint = {
   effector: THREE.Object3D
+  /** 位置ターゲット（posWeight > 0 のとき有効） */
   target: THREE.Vector3
-  weight?: number
-  root: THREE.Object3D // 通常 mixamorig:Hips
+  /** 回転ターゲット（rotWeight > 0 のとき有効） */
+  targetRot?: THREE.Quaternion
+  /** 位置拘束の重み（0 で無効） */
+  posWeight?: number
+  /** 回転拘束の重み（0 で無効） */
+  rotWeight?: number
+  /** ルート（通常 mixamorig:Hips） */
+  root: THREE.Object3D
 }
 
 // ===== ユーティリティ =====
@@ -28,7 +35,8 @@ function rotateLocalAxis(obj: THREE.Object3D, axis: 'x'|'y'|'z', angle: number) 
   else obj.rotateZ(angle)
 }
 
-function jacobianColumn(bone: THREE.Object3D, effector: THREE.Object3D, axis: 'x'|'y'|'z', eps=EPS): THREE.Vector3 {
+// ---- 位置ヤコビアン（数値微分）----
+function jacobianColumnPos(bone: THREE.Object3D, effector: THREE.Object3D, axis: 'x'|'y'|'z', eps=EPS): THREE.Vector3 {
   const p0 = getWorldPosition(effector)
   rotateLocalAxis(bone, axis, eps)
   bone.updateMatrixWorld(true)
@@ -36,6 +44,31 @@ function jacobianColumn(bone: THREE.Object3D, effector: THREE.Object3D, axis: 'x
   rotateLocalAxis(bone, axis, -eps)
   bone.updateMatrixWorld(true)
   return p1.sub(p0).divideScalar(eps)
+}
+
+// ---- 回転ヤコビアン（数値微分：対数写像ベクトル）----
+function quatLog(q: THREE.Quaternion): THREE.Vector3 {
+  // q = [w, v]（正規化前提）
+  const w = q.w
+  const v = new THREE.Vector3(q.x, q.y, q.z)
+  const s = v.length()
+  if (s < 1e-12) return new THREE.Vector3(0, 0, 0)
+  const axis = v.divideScalar(s)
+  const angle = 2 * Math.atan2(s, w)
+  return axis.multiplyScalar(angle)
+}
+
+function jacobianColumnRot(bone: THREE.Object3D, effector: THREE.Object3D, axis: 'x'|'y'|'z', eps=EPS): THREE.Vector3 {
+  const q0 = getWorldQuaternion(effector)
+  rotateLocalAxis(bone, axis, eps)
+  bone.updateMatrixWorld(true)
+  const q1 = getWorldQuaternion(effector)
+  rotateLocalAxis(bone, axis, -eps)
+  bone.updateMatrixWorld(true)
+  // Δq = q1 * inv(q0)
+  const dq = q1.clone().multiply(q0.clone().invert())
+  const log = quatLog(dq)
+  return log.divideScalar(eps) // 角速度近似 [rad/rad]
 }
 
 // ===== CoM 関連（簡易） =====
@@ -112,7 +145,7 @@ function closestPointOnSegments2(p: THREE.Vector2, poly: THREE.Vector2[]): THREE
   if (poly.length === 0) return p.clone()
   if (poly.length === 1) return poly[0].clone()
   let best = new THREE.Vector2(), bestD = Infinity
-  const segN = poly.length >= 3 ? poly.length : 1 // 2点なら一本の線分
+  const segN = poly.length >= 3 ? poly.length : 1
   for (let i = 0; i < segN; i++) {
     const a = poly[i], b = poly[(i + 1) % poly.length]
     const ab = b.clone().sub(a)
@@ -120,7 +153,7 @@ function closestPointOnSegments2(p: THREE.Vector2, poly: THREE.Vector2[]): THREE
     const cand = a.clone().addScaledVector(ab, t)
     const d = cand.distanceToSquared(p)
     if (d < bestD) { bestD = d; best = cand }
-    if (poly.length === 2) break // 2点のときは一本だけ
+    if (poly.length === 2) break
   }
   return best
 }
@@ -131,8 +164,8 @@ type SolveOpts = {
   rootStep?: number          // 既定 step
   rootClamp?: number         // 既定 0.08[m]
   // --- CoM バイアス ---
-  comSupport?: THREE.Vector3[] // 足の支持点（world）
-  comGain?: number              // 0..1（root 並進に乗せる係数）
+  comSupport?: THREE.Vector3[]
+  comGain?: number
 }
 
 export function solveIK(
@@ -146,7 +179,7 @@ export function solveIK(
   const allowRootTranslation = opts.allowRootTranslation ?? true
   const rootStep = opts.rootStep ?? step
   const rootClamp = opts.rootClamp ?? 0.08
-  const comGain = opts.comGain ?? 0 // 既定はOFF。Scene 側で与えると有効化
+  const comGain = opts.comGain ?? 0
   const support2 = (opts.comSupport ?? []).map(v3to2)
   const hull2 = support2.length ? convexHull2(support2) : []
 
@@ -160,50 +193,68 @@ export function solveIK(
     const rotDelta = new Map<THREE.Object3D, THREE.Vector3>()
     const trsDelta = new Map<THREE.Object3D, THREE.Vector3>() // root への並進Δ
 
-    // --- エフェクタ誤差 → 回転 & root 並進 ---
     constraints.forEach((c, ci) => {
-      const weight = c.weight ?? 1
-      const p = getWorldPosition(c.effector)
-      const e = c.target.clone().sub(p)
-      if (e.lengthSq() < 1e-8) return
+      const pw = c.posWeight ?? 1
+      const rw = c.rotWeight ?? 0
 
       const chain = chains[ci]
-      for (const bone of chain) {
-        const jx = jacobianColumn(bone, c.effector, 'x')
-        const jy = jacobianColumn(bone, c.effector, 'y')
-        const jz = jacobianColumn(bone, c.effector, 'z')
-        const d = rotDelta.get(bone) ?? new THREE.Vector3()
-        d.x += step * weight * jx.dot(e)
-        d.y += step * weight * jy.dot(e)
-        d.z += step * weight * jz.dot(e)
-        rotDelta.set(bone, d)
+
+      // --- 位置誤差 ---
+      if (pw > 0) {
+        const p = getWorldPosition(c.effector)
+        const e = c.target.clone().sub(p).multiplyScalar(pw)
+        if (e.lengthSq() > 1e-10) {
+          for (const bone of chain) {
+            const jx = jacobianColumnPos(bone, c.effector, 'x')
+            const jy = jacobianColumnPos(bone, c.effector, 'y')
+            const jz = jacobianColumnPos(bone, c.effector, 'z')
+            const d = rotDelta.get(bone) ?? new THREE.Vector3()
+            d.x += step * jx.dot(e)
+            d.y += step * jy.dot(e)
+            d.z += step * jz.dot(e)
+            rotDelta.set(bone, d)
+          }
+          if (allowRootTranslation) {
+            const t = trsDelta.get(c.root) ?? new THREE.Vector3()
+            t.addScaledVector(e, rootStep)
+            trsDelta.set(c.root, t)
+          }
+        }
       }
 
-      if (allowRootTranslation) {
-        const t = trsDelta.get(c.root) ?? new THREE.Vector3()
-        t.addScaledVector(e, rootStep * weight)
-        trsDelta.set(c.root, t)
+      // --- 回転誤差 ---
+      if (rw > 0 && c.targetRot) {
+        const qc = getWorldQuaternion(c.effector)
+        const qerr = c.targetRot.clone().multiply(qc.clone().invert()) // q_target * inv(q_current)
+        // 小回転ベクトル
+        const er = quatLog(qerr).multiplyScalar(rw)
+        if (er.lengthSq() > 1e-10) {
+          for (const bone of chain) {
+            const jx = jacobianColumnRot(bone, c.effector, 'x')
+            const jy = jacobianColumnRot(bone, c.effector, 'y')
+            const jz = jacobianColumnRot(bone, c.effector, 'z')
+            const d = rotDelta.get(bone) ?? new THREE.Vector3()
+            d.x += step * jx.dot(er)
+            d.y += step * jy.dot(er)
+            d.z += step * jz.dot(er)
+            rotDelta.set(bone, d)
+          }
+        }
       }
     })
 
-    // --- CoM バイアス（XZ のみ） ---
+    // --- CoM バイアス（XZ のみ、root 並進にのみ反映） ---
     if (comGain > 0 && hull2.length) {
-      // 同一 root を仮定（複数 root の場合は適宜拡張）
       const anyRoot = constraints[0].root
       const com = computeCoM(anyRoot)
       const com2 = v3to2(com)
       let goal2 = com2.clone()
-
       if (hull2.length >= 3) {
-        if (!isInsideConvex2(com2, hull2)) {
-          goal2 = closestPointOnSegments2(com2, hull2)
-        }
+        if (!isInsideConvex2(com2, hull2)) goal2 = closestPointOnSegments2(com2, hull2)
       } else {
-        // 支持点が1or2個：点/線分へ投影
         goal2 = closestPointOnSegments2(com2, hull2)
       }
-
-      const delta2 = goal2.sub(com2) // [x,z]
+      const delta2 = goal2.sub(com2)
       if (delta2.lengthSq() > 1e-12) {
         const deltaW = new THREE.Vector3(delta2.x, 0, delta2.y).multiplyScalar(comGain)
         const t = trsDelta.get(anyRoot) ?? new THREE.Vector3()

@@ -17,7 +17,7 @@ html, body {
 
 .control-row {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) auto auto;
+  grid-template-columns: 120px minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
 }

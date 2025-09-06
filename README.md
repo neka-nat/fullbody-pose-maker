@@ -14,13 +14,13 @@ Next.js + TypeScript app scaffold for an IK pose editor targeting Mixamo FBX rig
 1. Install dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 
 2. Run dev server:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 3. Open http://localhost:3000, choose the model (XBot/YBot) from the sidebar.

@@ -5,7 +5,7 @@ import { TransformControls, Grid, GizmoHelper, GizmoViewport } from '@react-thre
 import * as THREE from 'three'
 import { FBXLoader } from 'three-stdlib'
 import { useUIStore } from '@/lib/store'
-import { findObjectByName, getWorldPosition, listBones, findSkeletonTopBone } from '@/lib/fbx'
+import { findObjectByName, getWorldPosition, getWorldQuaternion, listBones, findSkeletonTopBone } from '@/lib/fbx'
 import { solveIK, IKConstraint } from '@/lib/ik'
 
 export function Scene() {
@@ -20,6 +20,7 @@ export function Scene() {
   const setSkeletonRoot = useUIStore(s => s.setSkeletonRoot)
   const setBones = useUIStore(s => s.setBones)
   const setControlTarget = useUIStore(s => s.setControlTarget)
+  const setControlTargetRot = useUIStore(s => s.setControlTargetRot)
   const mapControlBone = useUIStore(s => s.mapControlBone)
   const modelName = useUIStore(s => s.modelName)
 
@@ -43,7 +44,7 @@ export function Scene() {
         modelRef.current.clear()
 
         // 約1.7mに正規化して原点に置く
-        const box = new THREE.Box3().setFromObject(scene)
+        const box = new THREE.Box3().setFromObject(scene as unknown as THREE.Object3D)
         const size = new THREE.Vector3()
         const center = new THREE.Vector3()
         box.getSize(size)
@@ -52,7 +53,7 @@ export function Scene() {
         const scale = size.y > 0 ? targetHeight / size.y : 1
         scene.scale.setScalar(scale)
 
-        const box2 = new THREE.Box3().setFromObject(scene)
+        const box2 = new THREE.Box3().setFromObject(scene as unknown as THREE.Object3D)
         const size2 = new THREE.Vector3()
         const center2 = new THREE.Vector3()
         box2.getSize(size2)
@@ -103,10 +104,14 @@ export function Scene() {
         if (leftFoot)  mapControlBone('LeftFoot', leftFoot)
         if (rightFoot) mapControlBone('RightFoot', rightFoot)
 
-        // 現在のエフェクタ位置を初期ターゲットに
+        // 現在のエフェクタ位置/回転を初期ターゲットに
+        const skel = skeletonRoot.current || scene
         for (const [id, name] of [['LeftHand', leftHand], ['RightHand', rightHand], ['LeftFoot', leftFoot], ['RightFoot', rightFoot]] as const) {
-          const eff = name ? findObjectByName(scene, name) : null
-          if (eff) setControlTarget(id, getWorldPosition(eff))
+          const eff = name ? findObjectByName(skel, name) : null
+          if (eff) {
+            setControlTarget(id, getWorldPosition(eff))
+            setControlTargetRot(id, getWorldQuaternion(eff))
+          }
         }
       },
       () => {},
@@ -124,10 +129,18 @@ export function Scene() {
     if (!sceneRoot || !root) return [] as IKConstraint[]
     const out: IKConstraint[] = []
     for (const cp of controls) {
-      if (!cp.enabled || !cp.boneName) continue
+      if (!cp.boneName) continue
+      if (!cp.posEnabled && !cp.rotEnabled) continue
       const eff = findObjectByName(root, cp.boneName)
       if (!eff) continue
-      out.push({ effector: eff, target: cp.target, root })
+      out.push({
+        effector: eff,
+        target: cp.target,
+        targetRot: cp.rotEnabled ? cp.targetRot : undefined,
+        posWeight: cp.posEnabled ? 1 : 0,
+        rotWeight: cp.rotEnabled ? 1 : 0,
+        root
+      })
     }
     return out
   }, [controls, modelRoot, skeletonFromStore])
@@ -135,15 +148,13 @@ export function Scene() {
   // IK 実行＋CoMバイアス（足系コントロールから支持点を作る）
   useFrame(() => {
     if (constraints.length) {
-      // ★ 検索ルートは skeletonRoot 優先
       const base = skeletonFromStore || skeletonRoot.current || modelRef.current
       const supportPts: THREE.Vector3[] = []
       if (base) {
-        // boneName に foot / toe を含むものを足とみなす
         controls.forEach(cp => {
           if (!cp.boneName) return
           if (!/foot|toe/i.test(cp.boneName)) return
-          if (cp.enabled) {
+          if (cp.posEnabled) {
             supportPts.push(cp.target.clone())
           } else {
             const eff = findObjectByName(base, cp.boneName)
@@ -189,7 +200,8 @@ function ControlGizmo({
 }) {
   const cp = useUIStore(s => s.controls.find(c => c.id === controlId))
   const setControlTarget = useUIStore(s => s.setControlTarget)
-  const controlsEnabledCount = useUIStore(s => s.controls.filter(c => c.enabled).length)
+  // 「拘束0件なら全身移動」の判定は“位置拘束”だけ見る
+  const posEnabledCount = useUIStore(s => s.controls.filter(c => c.posEnabled).length)
   const skeleton = useUIStore(s => s.skeletonRoot)
   const searchRoot = skeleton || modelRef.current
   const showGizmos = useUIStore(s => s.showGizmos)
@@ -208,16 +220,15 @@ function ControlGizmo({
     return () => { if (tcRef.current) tcRef.current.detach() }
   }, [])
 
-  // ★ 重要：boneName 変化や有効化条件の変化で強制 re-attach
+  // boneName や表示条件が変化したら re-attach
   useEffect(() => {
     if (!tcRef.current || !anchorRef.current) return
     tcRef.current.detach()
     tcRef.current.attach(anchorRef.current)
-    // visible/enabled を同期
-    const canShow = showGizmos && (!!cp?.boneName || controlsEnabledCount === 0)
+    const canShow = showGizmos && (!!cp?.boneName || posEnabledCount === 0)
     tcRef.current.visible = canShow
     tcRef.current.enabled = canShow
-  }, [cp?.boneName, controlsEnabledCount, showGizmos])
+  }, [cp?.boneName, posEnabledCount, showGizmos])
 
   // 初期配置＆ターゲット変更時にアンカー位置を反映（ドラッグ中は無視）
   useEffect(() => {
@@ -225,18 +236,18 @@ function ControlGizmo({
     if (!searchRoot || !cp.boneName) return
     const eff = findObjectByName(searchRoot, cp.boneName)
     if (!eff) return
-    const pos = cp.enabled ? cp.target : getWorldPosition(eff)
+    const pos = cp.posEnabled ? cp.target : getWorldPosition(eff)
     if (anchorRef.current) {
       anchorRef.current.position.copy(pos)
       local.current.lastPos.copy(pos)
     }
     if (tcRef.current) tcRef.current.updateMatrixWorld(true)
-  }, [cp?.boneName, cp?.enabled, cp?.target, modelRef])
+  }, [cp?.boneName, cp?.posEnabled, cp?.target, modelRef])
 
-  // 拘束OFFのときは毎フレームエフェクタ位置に追従
+  // 位置拘束OFFのときは毎フレームエフェクタ位置に追従
   useFrame(() => {
     if (!cp || !anchorRef.current || !modelRef.current || !cp.boneName || dragging.current) return
-    if (!cp.enabled) {
+    if (!cp.posEnabled) {
       const eff = searchRoot ? findObjectByName(searchRoot, cp.boneName) : null
       if (eff) {
         const p = getWorldPosition(eff)
@@ -254,19 +265,17 @@ function ControlGizmo({
     const delta = w.clone().sub(local.current.lastPos)
     local.current.lastPos.copy(w)
     setControlTarget(controlId, w)
-    if (controlsEnabledCount === 0 && modelRef.current) {
+    if (posEnabledCount === 0 && modelRef.current) {
       modelRef.current.position.add(delta)
     }
   }
 
   if (!cp) return null
-
-  const canShow = showGizmos && (!!cp.boneName || controlsEnabledCount === 0)
+  const canShow = showGizmos && (!!cp.boneName || posEnabledCount === 0)
 
   return (
     <>
       <TransformControls
-        // ★ boneName の変化で確実に再マウントして内部状態を刷新
         key={cp.id + ':' + (cp.boneName ?? 'none')}
         ref={tcRef}
         mode="translate"
@@ -282,7 +291,7 @@ function ControlGizmo({
         <mesh>
           <sphereGeometry args={[0.06, 16, 16]} />
           <meshStandardMaterial
-            color={cp.enabled ? '#ff4070' : '#999999'}
+            color={cp.posEnabled ? '#ff4070' : '#999999'}
             depthTest={false}
             depthWrite={false}
           />
