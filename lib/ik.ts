@@ -166,6 +166,7 @@ type SolveOpts = {
   // --- CoM バイアス ---
   comSupport?: THREE.Vector3[]
   comGain?: number
+  rotGain?: number
 }
 
 export function solveIK(
@@ -180,6 +181,7 @@ export function solveIK(
   const rootStep = opts.rootStep ?? step
   const rootClamp = opts.rootClamp ?? 0.08
   const comGain = opts.comGain ?? 0
+  const rotGain = opts.rotGain ?? 1
   const support2 = (opts.comSupport ?? []).map(v3to2)
   const hull2 = support2.length ? convexHull2(support2) : []
 
@@ -225,18 +227,18 @@ export function solveIK(
       // --- 回転誤差 ---
       if (rw > 0 && c.targetRot) {
         const qc = getWorldQuaternion(c.effector)
-        const qerr = c.targetRot.clone().multiply(qc.clone().invert()) // q_target * inv(q_current)
-        // 小回転ベクトル
+        const qerr = c.targetRot.clone().multiply(qc.clone().invert())
         const er = quatLog(qerr).multiplyScalar(rw)
+
         if (er.lengthSq() > 1e-10) {
           for (const bone of chain) {
             const jx = jacobianColumnRot(bone, c.effector, 'x')
             const jy = jacobianColumnRot(bone, c.effector, 'y')
             const jz = jacobianColumnRot(bone, c.effector, 'z')
             const d = rotDelta.get(bone) ?? new THREE.Vector3()
-            d.x += step * jx.dot(er)
-            d.y += step * jy.dot(er)
-            d.z += step * jz.dot(er)
+            d.x += step * rotGain * jx.dot(er)
+            d.y += step * rotGain * jy.dot(er)
+            d.z += step * rotGain * jz.dot(er)
             rotDelta.set(bone, d)
           }
         }

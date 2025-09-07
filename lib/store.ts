@@ -42,6 +42,7 @@ type Actions = {
   setControlTarget: (id: ControlID, pos: THREE.Vector3) => void
   setControlTargetRot: (id: ControlID, rot: THREE.Quaternion) => void
   setControlLabel: (id: ControlID, label: string) => void
+  setControlRotEnabled: (id: ControlID, enabled: boolean, targetIfEnable?: THREE.Quaternion) => void
 
   toggleGizmos: () => void
   saveImage: (canvas?: HTMLCanvasElement) => Promise<void>
@@ -131,6 +132,21 @@ export const useUIStore = create<State & Actions>((set, get) => {
 
     setControlLabel: (id, label) =>
       set(state => ({ controls: state.controls.map(c => c.id === id ? { ...c, label } : c) })),
+
+    setControlRotEnabled: (id, enabled, targetIfEnable) =>
+      set(state => ({
+        controls: state.controls.map(c =>
+          c.id === id
+            ? {
+                ...c,
+                rotEnabled: enabled,
+                targetRot: enabled && targetIfEnable
+                  ? targetIfEnable.clone().normalize()
+                  : c.targetRot
+              }
+            : c
+        )
+      })),
 
     toggleGizmos: () => set(state => ({ showGizmos: !state.showGizmos })),
 

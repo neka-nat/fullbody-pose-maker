@@ -133,10 +133,20 @@ export function Scene() {
       if (!cp.posEnabled && !cp.rotEnabled) continue
       const eff = findObjectByName(root, cp.boneName)
       if (!eff) continue
+
+      let targetRot: THREE.Quaternion | undefined
+      if (cp.rotEnabled) {
+        const t = cp.targetRot
+        const isIdentity =
+          Math.abs(t.x) < 1e-8 && Math.abs(t.y) < 1e-8 &&
+          Math.abs(t.z) < 1e-8 && Math.abs(t.w - 1) < 1e-8
+        targetRot = isIdentity ? getWorldQuaternion(eff) : t
+      }
+
       out.push({
         effector: eff,
         target: cp.target,
-        targetRot: cp.rotEnabled ? cp.targetRot : undefined,
+        targetRot,
         posWeight: cp.posEnabled ? 1 : 0,
         rotWeight: cp.rotEnabled ? 1 : 0,
         root
@@ -167,6 +177,7 @@ export function Scene() {
         rootClamp: 0.06,
         comSupport: supportPts,
         comGain: 0.03,
+        rotGain: 0.6,
       })
     }
   })

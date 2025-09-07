@@ -20,6 +20,7 @@ export function DebugSidebar() {
   const removeControl    = useUIStore(s => s.removeControl)
   const setControlTarget = useUIStore(s => s.setControlTarget)
   const setControlTargetRot = useUIStore(s => s.setControlTargetRot)
+  const setControlRotEnabled = useUIStore(s => s.setControlRotEnabled)
 
   const modelName = useUIStore(s => s.modelName)
   const setModelName = useUIStore(s => s.setModelName)
@@ -113,14 +114,14 @@ export function DebugSidebar() {
                 type="checkbox"
                 checked={cp.rotEnabled}
                 onChange={(e) => {
-                  if (e.target.checked) {
-                    const searchRoot3 = skeletonRoot || modelRoot
-                    if (cp.boneName && searchRoot3) {
-                      const eff = findObjectByName(searchRoot3, cp.boneName)
-                      if (eff) setControlTargetRot(cp.id, getWorldQuaternion(eff))
-                    }
+                  const checked = e.target.checked
+                  const root = skeletonRoot || modelRoot
+                  let q: THREE.Quaternion | undefined
+                  if (checked && cp.boneName && root) {
+                    const eff = findObjectByName(root, cp.boneName)
+                    if (eff) q = getWorldQuaternion(eff)
                   }
-                  toggleControlRot(cp.id)
+                  setControlRotEnabled(cp.id, checked, q)
                 }}
               />
               <span>Rot</span>
