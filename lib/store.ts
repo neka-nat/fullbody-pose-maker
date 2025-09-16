@@ -25,6 +25,7 @@ type State = {
   modelName: 'XBot' | 'YBot'
   controls: ControlPoint[]
   showGizmos: boolean
+  gizmoMode: 'translate' | 'rotate'
 }
 
 type Actions = {
@@ -45,6 +46,8 @@ type Actions = {
   setControlRotEnabled: (id: ControlID, enabled: boolean, targetIfEnable?: THREE.Quaternion) => void
 
   toggleGizmos: () => void
+  setGizmoMode: (m: 'translate' | 'rotate') => void
+  toggleGizmoMode: () => void
   saveImage: (canvas?: HTMLCanvasElement) => Promise<void>
   copyImage: (canvas?: HTMLCanvasElement) => Promise<void>
 }
@@ -77,6 +80,7 @@ export const useUIStore = create<State & Actions>((set, get) => {
       { id: 'RightFoot', label: 'Right Foot', boneName: null, posEnabled: true, rotEnabled: false, target: v3(), targetRot: qIdent() },
     ],
     showGizmos: true,
+    gizmoMode: 'translate',
 
     setModelRoot: (root) => set({ modelRoot: root }),
     setSkeletonRoot: (root) => set({ skeletonRoot: root }),
@@ -149,6 +153,8 @@ export const useUIStore = create<State & Actions>((set, get) => {
       })),
 
     toggleGizmos: () => set(state => ({ showGizmos: !state.showGizmos })),
+    setGizmoMode: (m) => set({ gizmoMode: m }),
+    toggleGizmoMode: () => set(s => ({ gizmoMode: s.gizmoMode === 'translate' ? 'rotate' : 'translate' })),
 
     // --- 画像保存/コピー（既存のまま） ---
     saveImage: async (canvas) => {

@@ -172,12 +172,12 @@ export function Scene() {
           }
         })
       }
-      solveIK(constraints, 6, 0.2, {
+      solveIK(constraints, 6, 0.12, {
         rootStep: 0.15,
         rootClamp: 0.06,
         comSupport: supportPts,
         comGain: 0.03,
-        rotGain: 0.6,
+        rotGain: 0.5,
       })
     }
   })
@@ -211,11 +211,13 @@ function ControlGizmo({
 }) {
   const cp = useUIStore(s => s.controls.find(c => c.id === controlId))
   const setControlTarget = useUIStore(s => s.setControlTarget)
+  const setControlTargetRot = useUIStore(s => s.setControlTargetRot) 
   // 「拘束0件なら全身移動」の判定は“位置拘束”だけ見る
   const posEnabledCount = useUIStore(s => s.controls.filter(c => c.posEnabled).length)
   const skeleton = useUIStore(s => s.skeletonRoot)
   const searchRoot = skeleton || modelRef.current
   const showGizmos = useUIStore(s => s.showGizmos)
+  const gizmoMode = useUIStore(s => s.gizmoMode)
 
   const anchorRef = useRef<THREE.Group>(null)
   const tcRef = useRef<any>(null)
@@ -239,7 +241,7 @@ function ControlGizmo({
     const canShow = showGizmos && (!!cp?.boneName || posEnabledCount === 0)
     tcRef.current.visible = canShow
     tcRef.current.enabled = canShow
-  }, [cp?.boneName, posEnabledCount, showGizmos])
+  }, [cp?.boneName, posEnabledCount, showGizmos, gizmoMode])
 
   // 初期配置＆ターゲット変更時にアンカー位置を反映（ドラッグ中は無視）
   useEffect(() => {
@@ -248,12 +250,26 @@ function ControlGizmo({
     const eff = findObjectByName(searchRoot, cp.boneName)
     if (!eff) return
     const pos = cp.posEnabled ? cp.target : getWorldPosition(eff)
+    let worldQ = cp.targetRot.clone()
+    const isIdentity =
+      Math.abs(worldQ.x) < 1e-8 && Math.abs(worldQ.y) < 1e-8 &&
+      Math.abs(worldQ.z) < 1e-8 && Math.abs(worldQ.w - 1) < 1e-8
+    if (isIdentity) worldQ = getWorldQuaternion(eff)
     if (anchorRef.current) {
+      // ワールド→ローカル変換してアンカーに適用（親が回っても破綻しないように）
+      if (anchorRef.current.parent) {
+        const pq = new THREE.Quaternion()
+        anchorRef.current.parent.getWorldQuaternion(pq)
+        const localQ = pq.clone().invert().multiply(worldQ)
+        anchorRef.current.quaternion.copy(localQ)
+      } else {
+        anchorRef.current.quaternion.copy(worldQ)
+      }
       anchorRef.current.position.copy(pos)
       local.current.lastPos.copy(pos)
     }
     if (tcRef.current) tcRef.current.updateMatrixWorld(true)
-  }, [cp?.boneName, cp?.posEnabled, cp?.target, modelRef])
+  }, [cp?.boneName, cp?.posEnabled, cp?.target, cp?.targetRot, modelRef, searchRoot])
 
   // 位置拘束OFFのときは毎フレームエフェクタ位置に追従
   useFrame(() => {
@@ -271,13 +287,22 @@ function ControlGizmo({
 
   const onTransformChange = () => {
     if (!cp || !dragging.current || !anchorRef.current) return
-    const w = new THREE.Vector3()
-    anchorRef.current.getWorldPosition(w)
-    const delta = w.clone().sub(local.current.lastPos)
-    local.current.lastPos.copy(w)
-    setControlTarget(controlId, w)
-    if (posEnabledCount === 0 && modelRef.current) {
-      modelRef.current.position.add(delta)
+
+    if (gizmoMode === 'translate') {
+      // 位置編集
+      const w = new THREE.Vector3()
+      anchorRef.current.getWorldPosition(w)
+      const delta = w.clone().sub(local.current.lastPos)
+      local.current.lastPos.copy(w)
+      setControlTarget(controlId, w)
+      if (posEnabledCount === 0 && modelRef.current) {
+        modelRef.current.position.add(delta)
+      }
+    } else {
+      // 回転編集：ワールド回転を targetRot へ反映
+      const wq = new THREE.Quaternion()
+      anchorRef.current.getWorldQuaternion(wq)
+      setControlTargetRot(controlId, wq)
     }
   }
 
@@ -289,7 +314,7 @@ function ControlGizmo({
       <TransformControls
         key={cp.id + ':' + (cp.boneName ?? 'none')}
         ref={tcRef}
-        mode="translate"
+        mode={gizmoMode}
         space="world"
         visible={canShow}
         enabled={canShow}

@@ -58,6 +58,11 @@ function quatLog(q: THREE.Quaternion): THREE.Vector3 {
   return axis.multiplyScalar(angle)
 }
 
+function shortestQuat(q: THREE.Quaternion) {
+  if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w)
+  return q
+}
+
 function jacobianColumnRot(bone: THREE.Object3D, effector: THREE.Object3D, axis: 'x'|'y'|'z', eps=EPS): THREE.Vector3 {
   const q0 = getWorldQuaternion(effector)
   rotateLocalAxis(bone, axis, eps)
@@ -67,6 +72,7 @@ function jacobianColumnRot(bone: THREE.Object3D, effector: THREE.Object3D, axis:
   bone.updateMatrixWorld(true)
   // Δq = q1 * inv(q0)
   const dq = q1.clone().multiply(q0.clone().invert())
+  shortestQuat(dq)
   const log = quatLog(dq)
   return log.divideScalar(eps) // 角速度近似 [rad/rad]
 }
@@ -228,6 +234,7 @@ export function solveIK(
       if (rw > 0 && c.targetRot) {
         const qc = getWorldQuaternion(c.effector)
         const qerr = c.targetRot.clone().multiply(qc.clone().invert())
+        shortestQuat(qerr)
         const er = quatLog(qerr).multiplyScalar(rw)
 
         if (er.lengthSq() > 1e-10) {
